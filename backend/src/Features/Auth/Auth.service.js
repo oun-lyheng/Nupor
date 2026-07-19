@@ -14,9 +14,6 @@ const sendEmail = require("../../utils/sendEmail");
 const sendSms = require("../../utils/sendSms");
 const { users, otpCodes, refreshTokens } = require("../../models");
 
-let aWeek =  new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-let tenMins = new Date(Date.now() + 10 * 60 * 1000);
-let fifTeenMins = new Date(Date.now() + 15 * 60 * 1000);
 
 const throwError = (message, status) => {
   const error = new Error(message);
@@ -47,10 +44,12 @@ const registerUser = async ({ fullName, email, phoneNumber, password }) => {
     throwError("Weak password: at least 8 characters required", 400);
   }
 
+  const normalizedPhone = phoneNumber ? sendSms.formatPhoneNumber(phoneNumber) : null;
+
   // Build dynamic where conditions to avoid passing undefined values to Sequelize
   const searchConditions = [];
   if (email) searchConditions.push({ email });
-  if (phoneNumber) searchConditions.push({ phoneNumber });
+  if (normalizedPhone) searchConditions.push({ phoneNumber: normalizedPhone });
 
   const existingUser = await users.findOne({
     where: {
@@ -62,7 +61,7 @@ const registerUser = async ({ fullName, email, phoneNumber, password }) => {
   const hashPassword = await bcrypt.hash(password, 10);
   const userNameGenerate = await generateUsername(fullName);
   const emailValue = email || null;
-  const phoneValue = phoneNumber || null;
+  const phoneValue = normalizedPhone;
 
   if (existingUser) {
     // If user exists and is verified, reject registration
@@ -86,7 +85,7 @@ const registerUser = async ({ fullName, email, phoneNumber, password }) => {
     await otpCodes.create({
       code: otpCode,
       userId: existingUser.id,
-      expireAt: tenMins ,
+      expireAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
       type: "register",
       isUsed: false,
     });
@@ -123,7 +122,7 @@ const registerUser = async ({ fullName, email, phoneNumber, password }) => {
   await otpCodes.create({
     code: otpCode,
     userId: user.id,
-    expireAt: tenMins ,
+    expireAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
     type: "register",
     isUsed: false,
   });
@@ -185,7 +184,7 @@ const verifyOtpCode = async ({ code, userId }) => {
 
   await refreshTokens.create({
     token: refreshToken,
-    expires_at: aWeek ,
+    expires_at:  new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) ,
     userId: user.id,
   });
 
@@ -219,10 +218,12 @@ const loginInService = async ({ email, phoneNumber, password }) => {
     throwError("Invalid email format", 400);
   }
 
+  const normalizedPhone = phoneNumber ? sendSms.formatPhoneNumber(phoneNumber) : null;
+
   // 3. Find user
   const loginConditions = [];
   if (email) loginConditions.push({ email });
-  if (phoneNumber) loginConditions.push({ phoneNumber });
+  if (normalizedPhone) loginConditions.push({ phoneNumber: normalizedPhone });
 
   const user = await users.findOne({
     where: {
@@ -276,7 +277,7 @@ const loginInService = async ({ email, phoneNumber, password }) => {
 
   await refreshTokens.create({
     token: refreshToken,
-    expires_at: aWeek ,
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)  ,
     userId: user.id,
     isRevoked: false,
   });
@@ -298,10 +299,12 @@ const forgotPassword = async ({ email, phoneNumber }) => {
     throwError("Invalid email format!", 400);
   }
 
+  const normalizedPhone = phoneNumber ? sendSms.formatPhoneNumber(phoneNumber) : null;
+
   // check if user exists
   const loginConditions = [];
   if (email) loginConditions.push({ email });
-  if (phoneNumber) loginConditions.push({ phoneNumber });
+  if (normalizedPhone) loginConditions.push({ phoneNumber: normalizedPhone });
 
   const user = await users.findOne({
     where: {
@@ -332,7 +335,7 @@ const forgotPassword = async ({ email, phoneNumber }) => {
   await otpCodes.create({
     code: otpCode,
     userId: user.id,
-    expireAt: tenMins ,
+    expireAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
     type: "forgot_password",
     isUsed: false,
   });
@@ -350,9 +353,11 @@ const verifyForgotPasswordOtp = async ({ email, phoneNumber, code }) => {
     throwError("Please provide otp code!", 400);
   }
 
+  const normalizedPhone = phoneNumber ? sendSms.formatPhoneNumber(phoneNumber) : null;
+
   const loginConditions = [];
   if (email) loginConditions.push({ email });
-  if (phoneNumber) loginConditions.push({ phoneNumber });
+  if (normalizedPhone) loginConditions.push({ phoneNumber: normalizedPhone });
 
   const user = await users.findOne({ where: { [Op.or]: loginConditions } });
   if (!user) {

@@ -53,4 +53,5 @@ const sendSms = async (phoneNumber, message) => {
   }
 };
 
+sendSms.formatPhoneNumber = formatPhoneNumber;
 module.exports = sendSms;
