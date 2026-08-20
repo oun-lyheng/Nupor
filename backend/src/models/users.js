@@ -26,6 +26,11 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'userId',
         as: 'refreshTokens'
       });
+      // One-to-Many with products (Seller listings)
+      this.hasMany(models.products, {
+        foreignKey: 'userId',
+        as: 'products'
+      });
     }
   }
   users.init({

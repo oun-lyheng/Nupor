@@ -1,4 +1,3 @@
-
 const {
   registerUser,
   loginWithGmail,
@@ -25,13 +24,13 @@ const registerController = async (req, res) => {
       password,
     });
 
-    return res.status(201).json({
+    res.status(201).json({
       message: result.message,
       userId: result.userId,
     });
   } catch (error) {
     const statusCode = error.status || 500;
-    return res.status(statusCode).json({
+    res.status(statusCode).json({
       message: error.message,
     });
   }
@@ -48,7 +47,7 @@ const verifyOtpController = async (req, res) => {
     });
   } catch (error) {
     const statusCode = error.status || 500;
-    return res.status(statusCode).json({
+    res.status(statusCode).json({
       errorMessage: error.message,
     });
   }
@@ -61,12 +60,12 @@ const loginController = async (req, res) => {
 
     const result = await loginInService({ email, phoneNumber, password });
 
-    return res.json({
+    res.json({
       result,
     });
   } catch (error) {
     const statusCode = error.status || 500;
-    return res.status(statusCode).json({
+    res.status(statusCode).json({
       message: error.message,
     });
   }
@@ -83,7 +82,7 @@ const forgotPasswordController = async (req, res) => {
     });
   } catch (error) {
     const statusCode = error.status || 500;
-    return res.status(statusCode).json({
+    res.status(statusCode).json({
       message: error.message,
     });
   }
@@ -91,16 +90,16 @@ const forgotPasswordController = async (req, res) => {
 
 const verifyForgotPasswordController = async (req, res) => {
   try {
-    const { email, phoneNumber , code} = req.body;
+    const { email, phoneNumber, code } = req.body;
 
-    const result = await verifyForgotPasswordOtp({ email, phoneNumber ,code });
+    const result = await verifyForgotPasswordOtp({ email, phoneNumber, code });
 
     res.json({
       result,
     });
   } catch (error) {
     const statusCode = error.status || 500;
-    return res.status(statusCode).json({
+    res.status(statusCode).json({
       message: error.message,
     });
   }
@@ -108,19 +107,19 @@ const verifyForgotPasswordController = async (req, res) => {
 
 const resetPasswordController = async (req, res) => {
   try {
-    const { newPassword , resetToken } = req.body;
+    const { newPassword, resetToken } = req.body;
 
     // request resetToken when do frontend
     // const resetToken = req.cookie.resetToken
 
-    const result = await resetPassword({ newPassword , resetToken });
+    const result = await resetPassword({ newPassword, resetToken });
 
     res.json({
       result,
     });
   } catch (error) {
     const statusCode = error.status || 500;
-    return res.status(statusCode).json({
+    res.status(statusCode).json({
       message: error.message,
     });
   }
@@ -128,12 +127,12 @@ const resetPasswordController = async (req, res) => {
 
 const changePasswordController = async (req, res) => {
   try {
-    const { currentPassword , newPassword, userId } = req.body;
+    const { currentPassword, newPassword, userId } = req.body;
 
-    const result = await changePassword({ 
-      currentPassword, 
-      newPassword, 
-      userId: userId || req.user?.id 
+    const result = await changePassword({
+      currentPassword,
+      newPassword,
+      userId: userId || req.user?.id,
     });
 
     res.json({
@@ -141,7 +140,7 @@ const changePasswordController = async (req, res) => {
     });
   } catch (error) {
     const statusCode = error.status || 500;
-    return res.status(statusCode).json({
+    res.status(statusCode).json({
       message: error.message,
     });
   }
@@ -158,7 +157,7 @@ const resendOtpCodeController = async (req, res) => {
     });
   } catch (error) {
     const statusCode = error.status || 500;
-    return res.status(statusCode).json({
+    res.status(statusCode).json({
       message: error.message,
     });
   }
@@ -167,8 +166,7 @@ const resendOtpCodeController = async (req, res) => {
 // REFRESH TOKEN CONTROLLER
 const refreshTokenController = async (req, res) => {
   try {
-    
-    const {refreshToken } = req.body
+    const { refreshToken } = req.body;
 
     // request cookie refresh token when do frontend
     // const refreshToken = req.cookies.refreshToken ;
@@ -180,7 +178,7 @@ const refreshTokenController = async (req, res) => {
     });
   } catch (error) {
     const statusCode = error.status || 500;
-    return res.status(statusCode).json({
+    res.status(statusCode).json({
       message: error.message,
     });
   }
@@ -197,7 +195,7 @@ const logOutController = async (req, res) => {
     });
   } catch (error) {
     const statusCode = error.status || 500;
-    return res.status(statusCode).json({
+    res.status(statusCode).json({
       message: error.message,
     });
   }
@@ -211,7 +209,7 @@ module.exports = {
   verifyForgotPasswordController,
   resetPasswordController,
   changePasswordController,
-  resendOtpCodeController ,
-  refreshTokenController ,
-  logOutController
+  resendOtpCodeController,
+  refreshTokenController,
+  logOutController,
 };

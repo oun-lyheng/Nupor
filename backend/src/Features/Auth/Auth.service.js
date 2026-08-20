@@ -13,13 +13,8 @@ const {
 const sendEmail = require("../../utils/sendEmail");
 const sendSms = require("../../utils/sendSms");
 const { users, otpCodes, refreshTokens } = require("../../models");
+const {throwError} = require("../../utils/appError");
 
-
-const throwError = (message, status) => {
-  const error = new Error(message);
-  error.status = status;
-  throw error;
-};
 
 const registerUser = async ({ fullName, email, phoneNumber, password }) => {
   if (!email && !phoneNumber) {

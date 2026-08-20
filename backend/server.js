@@ -51,9 +51,25 @@ const testConnection = async () => {
 
 testConnection();
 
+// ===============
 // ----- ROUTES -----
+// ===============
+
+// AUTH ROUTES
 const authRouter = require("./src/Features/Auth/Auth.routes");
 app.use("/api/auth", authRouter);
+
+// CATEGORY ROUTES
+const categoryRouter = require("./src/Features/categories/Category.routes")
+app.use("/api" , categoryRouter)
+
+// PRODUCT ROUTES 
+const productRouter = require("./src/Features/products/Product.route") ;
+app.use("/api" , productRouter);
+
+// PRODUCT IMAGES ROUTES
+const productImagesRouter = require("./src/Features/ProductsImages/ProductImages.routes");
+app.use("/api", productImagesRouter);
 
 
 app.listen(port, () => {
