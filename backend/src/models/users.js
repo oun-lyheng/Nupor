@@ -31,6 +31,12 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'userId',
         as: 'products'
       });
+      // One-to-One with Cart
+      this.hasOne(models.cart, {
+        foreignKey: 'buyerId',
+        as: 'cart',
+        onDelete: 'CASCADE'
+      });
     }
   }
   users.init({

@@ -71,6 +71,10 @@ app.use("/api" , productRouter);
 const productImagesRouter = require("./src/Features/ProductsImages/ProductImages.routes");
 app.use("/api", productImagesRouter);
 
+// CART ROUTES
+const cartRouter = require("./src/Features/Carts/Cart.routes");
+app.use("/api", cartRouter);
+
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
