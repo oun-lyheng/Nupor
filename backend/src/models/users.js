@@ -37,6 +37,18 @@ module.exports = (sequelize, DataTypes) => {
         as: 'cart',
         onDelete: 'CASCADE'
       });
+      // One-to-Many with Orders (as buyer)
+      this.hasMany(models.orders, {
+        foreignKey: 'buyerId',
+        as: 'orders',
+        onDelete: 'RESTRICT'
+      });
+      // One-to-Many with OrderItems (as seller)
+      this.hasMany(models.orderItems, {
+        foreignKey: 'sellerId',
+        as: 'soldItems',
+        onDelete: 'RESTRICT'
+      });
     }
   }
   users.init({

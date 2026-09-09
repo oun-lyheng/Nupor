@@ -31,6 +31,13 @@ module.exports = (sequelize, DataTypes) => {
         as: 'cartItems',
         onDelete: 'CASCADE'
       });
+
+      // One-to-Many with orderItems
+      this.hasMany(models.orderItems, {
+        foreignKey: 'productId',
+        as: 'orderItems',
+        onDelete: 'SET NULL'
+      });
     }
   }
 
