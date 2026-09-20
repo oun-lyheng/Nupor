@@ -49,6 +49,12 @@ module.exports = (sequelize, DataTypes) => {
         as: 'soldItems',
         onDelete: 'RESTRICT'
       });
+      // One-to-Many with Orders (as seller)
+      this.hasMany(models.orders, {
+        foreignKey: 'sellerId',
+        as: 'sellerOrders',
+        onDelete: 'RESTRICT'
+      });
     }
   }
   users.init({

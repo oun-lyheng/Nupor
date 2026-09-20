@@ -126,6 +126,23 @@ backend/
 - `createdAt` (DATE)
 - `updatedAt` (DATE)
 
+### Group 2 — Categories & Products
+**categories**: `id`, `name`, `slug`, `icon`, `createdAt`, `updatedAt`
+**products**: `id`, `slug`, `productName`, `description`, `price`, `originalPrice`, `stock`, `isBestSeller`, `avgRating`, `isActive`, `userId` (FK to users.id), timestamps
+**productImages**: `id`, `imageUrl`, `public_id`, `position` (1-4), `productId` (FK to products.id), timestamps
+**productCategories**: `productId`, `categoryId`
+
+### Group 3 — Cart
+**cart**: `id`, `buyerId` (FK to users.id, unique), timestamps
+**cartItems**: `id`, `cartId` (FK to cart.id), `productId` (FK to products.id), `qty`, timestamps. Unique constraint on `(cartId, productId)`.
+
+### Group 4 — Orders & Direct Payments (Shopee Style)
+> See full details in [CHECKOUT_AND_PAYMENT_FLOW.md](./CHECKOUT_AND_PAYMENT_FLOW.md)
+
+**orders**: `id`, `buyerId` (FK to users.id), `sellerId` (FK to users.id), `orderNumber` (STRING, unique), `orderStatus` ('pending', 'payment_submitted', 'processing', 'completed', 'cancelled'), `totalAmount`, `shippingAddress`, `receiverName`, `phoneNumber`, timestamps
+**orderItems**: `id`, `orderId` (FK to orders.id), `productId` (FK to products.id, nullable), `sellerId` (FK to users.id), `productName`, `productImage`, `unitPrice`, `qty`, `subTotal`, timestamps
+**payments**: `id`, `orderId` (FK to orders.id), `amount`, `status` ('pending', 'payment_submitted', 'approved', 'rejected'), `paymentMethod` ('khqr', 'cod'), `receiptUrl`, `receiptPublicId`, `paidAt`, `remark`, timestamps
+
 ---
 
 ## Auth Flow

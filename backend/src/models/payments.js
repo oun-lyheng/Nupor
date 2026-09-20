@@ -41,6 +41,14 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: true
     },
+    receiptUrl: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    receiptPublicId: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
     paidAt: {
       type: DataTypes.DATE,
       allowNull: true

@@ -1,16 +1,20 @@
 const {
   checkoutFromCart,
+  uploadPaymentReceipt,
+  confirmPaymentBySeller,
+  rejectPaymentBySeller,
   getBuyerOrders,
   getOrderById,
-  getSellerSoldItems,
+  getSellerOrders,
   updateOrderStatus,
 } = require("./Order.service");
 
-// CHECKOUT FROM CART
+// CHECKOUT FROM CART FOR A SPECIFIC SELLER
 const checkoutController = async (req, res) => {
   try {
     const buyerId = req.user.id;
     const {
+      sellerId,
       shippingAddress,
       receiverName,
       phoneNumber,
@@ -20,6 +24,7 @@ const checkoutController = async (req, res) => {
 
     const result = await checkoutFromCart({
       buyerId,
+      sellerId,
       shippingAddress,
       receiverName,
       phoneNumber,
@@ -28,6 +33,77 @@ const checkoutController = async (req, res) => {
     });
 
     return res.status(201).json({
+      message: result.message,
+      data: result.data,
+    });
+  } catch (error) {
+    const statusCode = error.status || 500;
+    return res.status(statusCode).json({
+      message: error.message,
+    });
+  }
+};
+
+// UPLOAD PAYMENT RECEIPT (BUYER)
+const uploadPaymentReceiptController = async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    const buyerId = req.user.id;
+
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({
+        message: "Please select an image file to upload as payment receipt!",
+      });
+    }
+
+    const result = await uploadPaymentReceipt({
+      orderId,
+      buyerId,
+      fileBuffer: req.file.buffer,
+    });
+
+    return res.status(200).json({
+      message: result.message,
+      data: result.data,
+    });
+  } catch (error) {
+    const statusCode = error.status || 500;
+    return res.status(statusCode).json({
+      message: error.message,
+    });
+  }
+};
+
+// CONFIRM PAYMENT (SELLER)
+const confirmPaymentController = async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    const sellerId = req.user.id;
+
+    const result = await confirmPaymentBySeller({ orderId, sellerId });
+
+    return res.status(200).json({
+      message: result.message,
+      data: result.data,
+    });
+  } catch (error) {
+    const statusCode = error.status || 500;
+    return res.status(statusCode).json({
+      message: error.message,
+    });
+  }
+};
+
+// REJECT PAYMENT (SELLER)
+const rejectPaymentController = async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    const sellerId = req.user.id;
+    const { reason } = req.body;
+
+    const result = await rejectPaymentBySeller({ orderId, sellerId, reason });
+
+    return res.status(200).json({
       message: result.message,
       data: result.data,
     });
@@ -78,11 +154,11 @@ const getOrderByIdController = async (req, res) => {
   }
 };
 
-// GET SELLER'S SOLD ITEMS
-const getSellerSoldItemsController = async (req, res) => {
+// GET SELLER'S ORDERS (SHOP DASHBOARD)
+const getSellerOrdersController = async (req, res) => {
   try {
     const sellerId = req.user.id;
-    const result = await getSellerSoldItems(sellerId);
+    const result = await getSellerOrders(sellerId);
 
     return res.status(200).json({
       message: result.message,
@@ -96,7 +172,7 @@ const getSellerSoldItemsController = async (req, res) => {
   }
 };
 
-// UPDATE ORDER STATUS
+// UPDATE ORDER STATUS (e.g., cancelled or completed)
 const updateOrderStatusController = async (req, res) => {
   try {
     const orderId = req.params.id;
@@ -125,8 +201,11 @@ const updateOrderStatusController = async (req, res) => {
 
 module.exports = {
   checkoutController,
+  uploadPaymentReceiptController,
+  confirmPaymentController,
+  rejectPaymentController,
   getBuyerOrdersController,
   getOrderByIdController,
-  getSellerSoldItemsController,
+  getSellerOrdersController,
   updateOrderStatusController,
 };

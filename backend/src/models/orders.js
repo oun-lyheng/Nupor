@@ -11,6 +11,13 @@ module.exports = (sequelize, DataTypes) => {
         onDelete: 'RESTRICT'
       });
 
+      // Belongs-to seller (users)
+      this.belongsTo(models.users, {
+        foreignKey: 'sellerId',
+        as: 'seller',
+        onDelete: 'RESTRICT'
+      });
+
       // One-to-many with orderItems
       this.hasMany(models.orderItems, {
         foreignKey: 'orderId',
@@ -31,6 +38,10 @@ module.exports = (sequelize, DataTypes) => {
     buyerId: {
       type: DataTypes.INTEGER,
       allowNull: false
+    },
+    sellerId: {
+      type: DataTypes.INTEGER,
+      allowNull: true
     },
     orderNumber: {
       type: DataTypes.STRING,

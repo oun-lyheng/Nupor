@@ -7,10 +7,11 @@ const {
   products,
   productImages,
   users,
+  user_profiles,
   sequelize,
 } = require("../../models");
 const { throwError } = require("../../utils/appError");
-
+const { uploadBufferImageToCloudinary } = require("../../utils/uploadImage");
 
 /**
  * Helper to get full order details by ID
@@ -25,15 +26,25 @@ const getFullOrderData = async (orderId, transaction = null) => {
         attributes: ["id", "fullName", "userName", "email", "phoneNumber"],
       },
       {
-        model: orderItems,
-        as: "items",
+        model: users,
+        as: "seller",
+        attributes: ["id", "fullName", "userName", "phoneNumber"],
         include: [
           {
-            model: users,
-            as: "seller",
-            attributes: ["id", "fullName", "userName", "phoneNumber"],
+            model: user_profiles,
+            as: "profile",
+            attributes: [
+              "profile_url",
+              "accountName",
+              "accountNumber",
+              "khqrUrl",
+            ],
           },
         ],
+      },
+      {
+        model: orderItems,
+        as: "items",
       },
       {
         model: payments,
@@ -45,27 +56,39 @@ const getFullOrderData = async (orderId, transaction = null) => {
 };
 
 /**
- * CHECKOUT FROM BUYER'S CART
- * Runs in an atomic transaction:
- * 1. Validate cart has items
- * 2. Check stock for each product
- * 3. Snapshot prices, names, images, sellers
+ * CHECKOUT FROM BUYER'S CART FOR A SPECIFIC SELLER (Shopee Style)
+ * Atomic transaction:
+ * 1. Validate cart has items for the specified sellerId
+ * 2. Check stock for each product of this seller
+ * 3. Snapshot prices, names, main images, and sellerId
  * 4. Deduct product stocks
- * 5. Create order and orderItems
- * 6. Create payment record
- * 7. Clear buyer's cart items
+ * 5. Create order with buyerId AND sellerId
+ * 6. Create orderItems linked to this order
+ * 7. Create payment record (status: 'pending')
+ * 8. Remove ONLY this seller's items from cartItems
+ * 9. Return completed order + seller's KHQR payment info
  */
 const checkoutFromCart = async ({
   buyerId,
+  sellerId,
   shippingAddress,
   receiverName,
   phoneNumber,
-  paymentMethod = "cod",
+  paymentMethod = "khqr",
   remark = null,
 }) => {
-  if (!shippingAddress || !receiverName || !phoneNumber) {
-    throwError("Please provide shippingAddress, receiverName, and phoneNumber!", 400);
+  if (!sellerId) {
+    throwError("Please specify the sellerId to checkout for that shop!", 400);
   }
+
+  if (!shippingAddress || !receiverName || !phoneNumber) {
+    throwError(
+      "Please provide shippingAddress, receiverName, and phoneNumber!",
+      400
+    );
+  }
+
+  const targetSellerId = parseInt(sellerId, 10);
 
   return await sequelize.transaction(async (t) => {
     // 1. Fetch user's cart
@@ -91,16 +114,26 @@ const checkoutFromCart = async ({
       throwError("Your cart is empty! Add products before checkout.", 400);
     }
 
-    // 2. Validate stock and calculate total
+    // 2. Filter items belonging ONLY to the requested seller
+    const sellerItems = userCart.items.filter(
+      (item) => item.product && item.product.userId === targetSellerId
+    );
+
+    if (sellerItems.length === 0) {
+      throwError("No items from this seller were found in your cart!", 404);
+    }
+
+    // 3. Validate stock and calculate total for this seller's items
     let totalAmount = 0;
     const itemsToCreate = [];
+    const itemIdsToRemove = [];
 
-    for (const item of userCart.items) {
+    for (const item of sellerItems) {
       const prod = item.product;
 
-      if (!prod || !prod.isActive) {
+      if (!prod.isActive) {
         throwError(
-          `Product "${prod ? prod.productName : "Unknown"}" is no longer available!`,
+          `Product "${prod.productName}" is no longer available!`,
           400
         );
       }
@@ -127,21 +160,24 @@ const checkoutFromCart = async ({
 
       itemsToCreate.push({
         productId: prod.id,
-        sellerId: prod.userId,
+        sellerId: targetSellerId,
         productName: prod.productName,
         productImage: mainImageUrl,
         unitPrice,
         qty: item.qty,
         subTotal,
       });
+
+      itemIdsToRemove.push(item.id);
     }
 
     totalAmount = parseFloat(totalAmount.toFixed(2));
 
-    // 3. Create the Order
+    // 4. Create the Order (with sellerId and buyerId)
     const newOrder = await orders.create(
       {
         buyerId,
+        sellerId: targetSellerId,
         orderNumber: `ORD-${Date.now()}`,
         orderStatus: "pending",
         totalAmount,
@@ -152,15 +188,15 @@ const checkoutFromCart = async ({
       { transaction: t }
     );
 
-    // 4. Create OrderItems linked to newOrder
+    // 5. Create OrderItems linked to newOrder
     const orderItemsWithOrderId = itemsToCreate.map((item) => ({
       ...item,
       orderId: newOrder.id,
     }));
     await orderItems.bulkCreate(orderItemsWithOrderId, { transaction: t });
 
-    // 5. Decrement Stock for all products
-    for (const item of userCart.items) {
+    // 6. Decrement Stock for this seller's products
+    for (const item of sellerItems) {
       await products.decrement("stock", {
         by: item.qty,
         where: { id: item.productId },
@@ -168,7 +204,7 @@ const checkoutFromCart = async ({
       });
     }
 
-    // 6. Create Payment Record
+    // 7. Create Payment Record (default pending)
     await payments.create(
       {
         orderId: newOrder.id,
@@ -180,20 +216,169 @@ const checkoutFromCart = async ({
       { transaction: t }
     );
 
-    // 7. Clear buyer's cart items
+    // 8. Clear ONLY this seller's items from cartItems
     await cartItems.destroy({
-      where: { cartId: userCart.id },
+      where: { id: itemIdsToRemove },
       transaction: t,
     });
 
-    // 8. Fetch complete created order
+    // 9. Fetch complete created order
     const completedOrder = await getFullOrderData(newOrder.id, t);
 
+    // 10. Fetch Seller Payment Info to return directly to the buyer
+    const sellerProfile = await user_profiles.findOne({
+      where: { userId: targetSellerId },
+      attributes: ["accountName", "accountNumber", "khqrUrl"],
+      transaction: t,
+    });
+
     return {
-      message: "Order placed successfully!",
-      data: completedOrder,
+      message: "Order placed successfully! Please scan the seller's KHQR to complete payment.",
+      data: {
+        order: completedOrder,
+        sellerPaymentInfo: {
+          sellerId: targetSellerId,
+          accountName: sellerProfile?.accountName,
+          accountNumber: sellerProfile?.accountNumber,
+          khqrUrl: sellerProfile?.khqrUrl,
+          amountDue: totalAmount,
+        },
+      },
     };
   });
+};
+
+/**
+ * UPLOAD PROOF OF PAYMENT RECEIPT (Buyer uploads transfer screenshot)
+ */
+const uploadPaymentReceipt = async ({ orderId, buyerId, fileBuffer }) => {
+  if (!fileBuffer) {
+    throwError("Please upload a payment receipt image!", 400);
+  }
+
+  const order = await orders.findOne({
+    where: { id: orderId },
+    include: [{ model: payments, as: "payment" }],
+  });
+
+  if (!order) {
+    throwError("Order not found!", 404);
+  }
+
+  if (order.buyerId !== buyerId) {
+    throwError("You are not authorized to upload receipt for this order!", 403);
+  }
+
+  if (order.orderStatus !== "pending" && order.orderStatus !== "payment_submitted") {
+    throwError(
+      `Cannot upload receipt for order with status "${order.orderStatus}"!`,
+      400
+    );
+  }
+
+  // Upload to Cloudinary
+  const uploadResult = await uploadBufferImageToCloudinary(fileBuffer, {
+    folder: "nupor/payment_receipts",
+  });
+
+  // Update payment record
+  if (order.payment) {
+    order.payment.receiptUrl = uploadResult.secure_url;
+    order.payment.receiptPublicId = uploadResult.public_id;
+    order.payment.status = "payment_submitted";
+    order.payment.paidAt = new Date();
+    await order.payment.save();
+  } else {
+    await payments.create({
+      orderId: order.id,
+      amount: order.totalAmount,
+      status: "payment_submitted",
+      receiptUrl: uploadResult.secure_url,
+      receiptPublicId: uploadResult.public_id,
+      paidAt: new Date(),
+    });
+  }
+
+  // Update order status to payment_submitted
+  order.orderStatus = "payment_submitted";
+  await order.save();
+
+  const updatedOrder = await getFullOrderData(order.id);
+
+  return {
+    message: "Payment receipt uploaded successfully! Waiting for seller confirmation.",
+    data: updatedOrder,
+  };
+};
+
+/**
+ * CONFIRM PAYMENT (Seller reviews receipt and marks payment approved)
+ */
+const confirmPaymentBySeller = async ({ orderId, sellerId }) => {
+  const order = await orders.findOne({
+    where: { id: orderId },
+    include: [{ model: payments, as: "payment" }],
+  });
+
+  if (!order) {
+    throwError("Order not found!", 404);
+  }
+
+  if (order.sellerId !== sellerId) {
+    throwError("Only the seller of this order can confirm payment!", 403);
+  }
+
+  if (!order.payment || !order.payment.receiptUrl) {
+    throwError("Cannot confirm payment: Buyer has not uploaded a payment receipt yet!", 400);
+  }
+
+  // Update payment & order
+  order.payment.status = "approved";
+  await order.payment.save();
+
+  order.orderStatus = "processing";
+  await order.save();
+
+  const updatedOrder = await getFullOrderData(order.id);
+
+  return {
+    message: "Payment confirmed successfully! Order is now processing.",
+    data: updatedOrder,
+  };
+};
+
+/**
+ * REJECT PAYMENT (Seller rejects invalid/unmatched receipt)
+ */
+const rejectPaymentBySeller = async ({ orderId, sellerId, reason }) => {
+  const order = await orders.findOne({
+    where: { id: orderId },
+    include: [{ model: payments, as: "payment" }],
+  });
+
+  if (!order) {
+    throwError("Order not found!", 404);
+  }
+
+  if (order.sellerId !== sellerId) {
+    throwError("Only the seller of this order can reject payment!", 403);
+  }
+
+  if (order.payment) {
+    order.payment.status = "rejected";
+    order.payment.remark = reason || "Payment receipt rejected by seller. Please re-upload.";
+    await order.payment.save();
+  }
+
+  order.orderStatus = "pending";
+  await order.save();
+
+  const updatedOrder = await getFullOrderData(order.id);
+
+  return {
+    message: "Payment receipt rejected. Buyer will be requested to re-upload.",
+    data: updatedOrder,
+  };
 };
 
 /**
@@ -203,6 +388,18 @@ const getBuyerOrders = async (buyerId) => {
   const userOrders = await orders.findAll({
     where: { buyerId },
     include: [
+      {
+        model: users,
+        as: "seller",
+        attributes: ["id", "fullName", "userName", "phoneNumber"],
+        include: [
+          {
+            model: user_profiles,
+            as: "profile",
+            attributes: ["profile_url", "accountName", "accountNumber", "khqrUrl"],
+          },
+        ],
+      },
       {
         model: orderItems,
         as: "items",
@@ -222,7 +419,7 @@ const getBuyerOrders = async (buyerId) => {
 };
 
 /**
- * GET SINGLE ORDER DETAIL (Buyer, Seller of items, or Admin)
+ * GET SINGLE ORDER DETAIL (Buyer, Seller, or Admin)
  */
 const getOrderById = async ({ orderId, userId, role }) => {
   const order = await getFullOrderData(orderId);
@@ -231,12 +428,11 @@ const getOrderById = async ({ orderId, userId, role }) => {
     throwError("Order not found!", 404);
   }
 
-  // Authorization check: Buyer, Admin, or Seller who has items in this order
   const isBuyer = order.buyerId === userId;
+  const isSeller = order.sellerId === userId;
   const isAdmin = role === "admin";
-  const isSellerOfItem = order.items.some((item) => item.sellerId === userId);
 
-  if (!isBuyer && !isAdmin && !isSellerOfItem) {
+  if (!isBuyer && !isSeller && !isAdmin) {
     throwError("You are not authorized to view this order!", 403);
   }
 
@@ -247,44 +443,47 @@ const getOrderById = async ({ orderId, userId, role }) => {
 };
 
 /**
- * GET ORDERS CONTAINING ITEMS SOLD BY A SPECIFIC SELLER
+ * GET ORDERS FOR A SPECIFIC SELLER (Seller's shop sales)
  */
-const getSellerSoldItems = async (sellerId) => {
-  const soldItems = await orderItems.findAll({
+const getSellerOrders = async (sellerId) => {
+  const shopOrders = await orders.findAll({
     where: { sellerId },
     include: [
       {
-        model: orders,
-        as: "order",
-        include: [
-          {
-            model: users,
-            as: "buyer",
-            attributes: ["id", "fullName", "userName", "phoneNumber"],
-          },
-          {
-            model: payments,
-            as: "payment",
-            attributes: ["status", "paymentMethod"],
-          },
-        ],
+        model: users,
+        as: "buyer",
+        attributes: ["id", "fullName", "userName", "phoneNumber"],
+      },
+      {
+        model: orderItems,
+        as: "items",
+      },
+      {
+        model: payments,
+        as: "payment",
       },
     ],
     order: [["createdAt", "DESC"]],
   });
 
   return {
-    message: "Sold items retrieved successfully",
-    data: soldItems,
+    message: "Seller orders retrieved successfully",
+    data: shopOrders,
   };
 };
 
 /**
- * UPDATE ORDER STATUS (e.g. pending -> processing -> completed or cancelled)
- * If cancelled, restore stock!
+ * UPDATE ORDER STATUS (e.g. processing -> completed or cancelled)
+ * If cancelled, restore product stock!
  */
 const updateOrderStatus = async ({ orderId, status, userId, role }) => {
-  const allowedStatuses = ["pending", "processing", "completed", "cancelled"];
+  const allowedStatuses = [
+    "pending",
+    "payment_submitted",
+    "processing",
+    "completed",
+    "cancelled",
+  ];
   if (!allowedStatuses.includes(status)) {
     throwError(
       `Invalid status. Allowed values: ${allowedStatuses.join(", ")}`,
@@ -304,20 +503,23 @@ const updateOrderStatus = async ({ orderId, status, userId, role }) => {
     }
 
     const isBuyer = order.buyerId === userId;
+    const isSeller = order.sellerId === userId;
     const isAdmin = role === "admin";
-    const isSeller = order.items.some((item) => item.sellerId === userId);
 
-    // Buyers can only cancel if still pending
+    // Buyers can only cancel if still pending or payment_submitted
     if (isBuyer && !isAdmin && !isSeller) {
       if (status !== "cancelled") {
         throwError("Buyers can only cancel their orders!", 403);
       }
-      if (order.orderStatus !== "pending") {
-        throwError("Cannot cancel an order that is already processing or completed!", 400);
+      if (order.orderStatus !== "pending" && order.orderStatus !== "payment_submitted") {
+        throwError(
+          "Cannot cancel an order that is already processing or completed!",
+          400
+        );
       }
     }
 
-    // If order was not cancelled, but is now being cancelled -> restore inventory stock
+    // Restore inventory stock if cancelled
     if (status === "cancelled" && order.orderStatus !== "cancelled") {
       for (const item of order.items) {
         if (item.productId) {
@@ -344,8 +546,11 @@ const updateOrderStatus = async ({ orderId, status, userId, role }) => {
 
 module.exports = {
   checkoutFromCart,
+  uploadPaymentReceipt,
+  confirmPaymentBySeller,
+  rejectPaymentBySeller,
   getBuyerOrders,
   getOrderById,
-  getSellerSoldItems,
+  getSellerOrders,
   updateOrderStatus,
 };

@@ -1,4 +1,11 @@
-const { cart, cartItems, products, productImages } = require("../../models");
+const {
+  cart,
+  cartItems,
+  products,
+  productImages,
+  users,
+  user_profiles,
+} = require("../../models");
 const { throwError } = require("../../utils/appError");
 
 /**
@@ -14,6 +21,7 @@ const getOrCreateCart = async (buyerId) => {
 
 /**
  * Helper to fetch full cart with product details, calculated subtotals, and grand total
+ * Groups items into "shops" by seller for Shopee-style per-seller checkout
  */
 const getFullCartData = async (cartId) => {
   const fullCart = await cart.findOne({
@@ -26,7 +34,26 @@ const getFullCartData = async (cartId) => {
           {
             model: products,
             as: "product",
-            include: [{ model: productImages, as: "images" }],
+            include: [
+              { model: productImages, as: "images" },
+              {
+                model: users,
+                as: "seller",
+                attributes: ["id", "fullName", "userName"],
+                include: [
+                  {
+                    model: user_profiles,
+                    as: "profile",
+                    attributes: [
+                      "profile_url",
+                      "accountName",
+                      "accountNumber",
+                      "khqrUrl",
+                    ],
+                  },
+                ],
+              },
+            ],
           },
         ],
       },
@@ -36,20 +63,49 @@ const getFullCartData = async (cartId) => {
 
   if (!fullCart) return null;
 
-  // Calculate totals
+  // Calculate totals and group by shop/seller
   let grandTotal = 0;
   let totalItems = 0;
+  const shopsMap = {};
 
   const itemsWithSubtotal = fullCart.items.map((item) => {
-    const unitPrice = parseFloat(item.product?.price || 0);
+    const unitPrice = parseFloat(item.product.price);
     const subtotal = unitPrice * item.qty;
     grandTotal += subtotal;
     totalItems += item.qty;
 
-    return {
+    const formattedItem = {
       ...item.toJSON(),
       subtotal: parseFloat(subtotal.toFixed(2)),
     };
+
+    // Grouping by seller
+    const seller = item.product.seller;
+    const profile = seller?.profile;
+    const sellerId = seller.id;
+
+    if (!shopsMap[sellerId]) {
+      shopsMap[sellerId] = {
+        sellerId: seller.id,
+        fullName: seller.fullName,
+        userName: seller.userName,
+        profile_url: profile?.profile_url,
+        khqrUrl: profile?.khqrUrl,
+        accountName: profile?.accountName,
+        accountNumber: profile?.accountNumber,
+        subTotal: 0,
+        totalItems: 0,
+        items: [],
+      };
+    }
+
+    shopsMap[sellerId].items.push(formattedItem);
+    shopsMap[sellerId].subTotal = parseFloat(
+      (shopsMap[sellerId].subTotal + formattedItem.subtotal).toFixed(2)
+    );
+    shopsMap[sellerId].totalItems += item.qty;
+
+    return formattedItem;
   });
 
   return {
@@ -57,6 +113,7 @@ const getFullCartData = async (cartId) => {
     buyerId: fullCart.buyerId,
     totalItems,
     grandTotal: parseFloat(grandTotal.toFixed(2)),
+    shops: Object.values(shopsMap),
     items: itemsWithSubtotal,
     createdAt: fullCart.createdAt,
     updatedAt: fullCart.updatedAt,
