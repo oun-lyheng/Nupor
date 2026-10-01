@@ -202,7 +202,7 @@ Table payments {
 }
 
 // ===========================
-// Reviews table (Upcoming)
+// Reviews table
 // ===========================
 Table reviews {
   id int [pk, increment]
@@ -210,10 +210,26 @@ Table reviews {
   productId int [ref: > products.id, not null]
   rating decimal(2,1) [not null] // 1.0 to 5.0
   comment text
+  isVerifiedPurchase boolean [default: false]
   createdAt timestamp
   updatedAt timestamp
 
   Indexes {
     (userId, productId) [unique] // Buyer can only leave 1 review per product
+  }
+}
+
+// ===========================
+// Wishlists table (Favorites)
+// ===========================
+Table wishlists {
+  id int [pk, increment]
+  userId int [ref: > users.id, not null]
+  productId int [ref: > products.id, not null]
+  createdAt timestamp
+  updatedAt timestamp
+
+  Indexes {
+    (userId, productId) [unique] // Unique composite index
   }
 }

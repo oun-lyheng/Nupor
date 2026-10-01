@@ -59,6 +59,10 @@ testConnection();
 const authRouter = require("./src/Features/Auth/Auth.routes");
 app.use("/api/auth", authRouter);
 
+// USER & PROFILE ROUTES
+const userRouter = require("./src/Features/Users/User.routes");
+app.use("/api", userRouter);
+
 // CATEGORY ROUTES
 const categoryRouter = require("./src/Features/categories/Category.routes")
 app.use("/api" , categoryRouter)
@@ -78,6 +82,14 @@ app.use("/api", cartRouter);
 // ORDER ROUTES
 const orderRouter = require("./src/Features/Orders/Order.routes");
 app.use("/api", orderRouter);
+
+// REVIEW ROUTES
+const reviewRouter = require("./src/Features/Reviews/Review.routes");
+app.use("/api", reviewRouter);
+
+// WISHLIST ROUTES
+const wishlistRouter = require("./src/Features/Wishlists/Wishlist.routes");
+app.use("/api", wishlistRouter);
 
 
 app.listen(port, () => {

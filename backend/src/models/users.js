@@ -55,6 +55,18 @@ module.exports = (sequelize, DataTypes) => {
         as: 'sellerOrders',
         onDelete: 'RESTRICT'
       });
+      // One-to-Many with reviews
+      this.hasMany(models.reviews, {
+        foreignKey: 'userId',
+        as: 'reviews',
+        onDelete: 'CASCADE'
+      });
+      // One-to-Many with wishlists
+      this.hasMany(models.wishlists, {
+        foreignKey: 'userId',
+        as: 'wishlists',
+        onDelete: 'CASCADE'
+      });
     }
   }
   users.init({

@@ -47,7 +47,33 @@ const createProductController = async (req, res) => {
 // GET ALL PRODUCTS
 const getAllProductsController = async (req, res) => {
   try {
-    const result = await getAllProducts();
+    const {
+      q,
+      categoryId,
+      categorySlug,
+      minPrice,
+      maxPrice,
+      minRating,
+      inStock,
+      sellerId,
+      sortBy,
+      page,
+      limit,
+    } = req.query;
+
+    const result = await getAllProducts({
+      q,
+      categoryId,
+      categorySlug,
+      minPrice,
+      maxPrice,
+      minRating,
+      inStock,
+      sellerId,
+      sortBy,
+      page,
+      limit,
+    });
 
     return res.status(200).json({
       message: result.message,

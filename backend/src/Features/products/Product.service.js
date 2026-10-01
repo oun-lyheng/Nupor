@@ -94,30 +94,122 @@ const createProduct = async ({
   };
 };
 
-// GET ALL PRODUCTS FOR PUBLIC
-const getAllProducts = async () => {
-  const productList = await products.findAll({
-    where: { isActive: true },
+// GET ALL PRODUCTS FOR PUBLIC (Search, Filter, Sort, Paginate)
+const getAllProducts = async ({
+  q,
+  categoryId,
+  categorySlug,
+  minPrice,
+  maxPrice,
+  minRating,
+  inStock,
+  sellerId,
+  sortBy = "newest",
+  page = 1,
+  limit = 12,
+} = {}) => {
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.max(1, parseInt(limit, 10) || 12);
+  const offset = (pageNum - 1) * limitNum;
+
+  const whereConditions = { isActive: true };
+
+  // 1. Keyword search across productName and description
+  if (q && q.trim()) {
+    const term = `%${q.trim()}%`;
+    whereConditions[Op.or] = [
+      { productName: { [Op.iLike]: term } },
+      { description: { [Op.iLike]: term } },
+    ];
+  }
+
+  // 2. Price filtering
+  if (minPrice !== undefined && minPrice !== null && minPrice !== "") {
+    whereConditions.price = whereConditions.price || {};
+    whereConditions.price[Op.gte] = parseFloat(minPrice);
+  }
+  if (maxPrice !== undefined && maxPrice !== null && maxPrice !== "") {
+    whereConditions.price = whereConditions.price || {};
+    whereConditions.price[Op.lte] = parseFloat(maxPrice);
+  }
+
+  // 3. Rating filtering
+  if (minRating !== undefined && minRating !== null && minRating !== "") {
+    whereConditions.avgRating = { [Op.gte]: parseFloat(minRating) };
+  }
+
+  // 4. In-stock filter
+  if (inStock === "true" || inStock === true) {
+    whereConditions.stock = { [Op.gt]: 0 };
+  }
+
+  // 5. Seller filter
+  if (sellerId) {
+    whereConditions.userId = parseInt(sellerId, 10);
+  }
+
+  // 6. Category filtering
+  const categoryInclude = {
+    model: categories,
+    as: "categories",
+    through: { attributes: [] },
+  };
+  if (categoryId) {
+    categoryInclude.where = { id: parseInt(categoryId, 10) };
+  } else if (categorySlug) {
+    categoryInclude.where = { slug: categorySlug.trim() };
+  }
+
+  // 7. Sorting
+  let orderClause = [["createdAt", "DESC"]];
+  if (sortBy === "price_asc") {
+    orderClause = [["price", "ASC"]];
+  } else if (sortBy === "price_desc") {
+    orderClause = [["price", "DESC"]];
+  } else if (sortBy === "top_rated") {
+    orderClause = [
+      ["avgRating", "DESC"],
+      ["createdAt", "DESC"],
+    ];
+  } else if (sortBy === "best_seller") {
+    orderClause = [
+      ["isBestSeller", "DESC"],
+      ["createdAt", "DESC"],
+    ];
+  } else if (sortBy === "newest") {
+    orderClause = [["createdAt", "DESC"]];
+  }
+
+  orderClause.push([{ model: productImages, as: "images" }, "position", "ASC"]);
+
+  // 8. Query with distinct count for accurate pagination
+  const { count, rows } = await products.findAndCountAll({
+    where: whereConditions,
     include: [
       {
         model: productImages,
         as: "images",
       },
-      {
-        model: categories,
-        as: "categories",
-        through: { attributes: [] },
-      },
+      categoryInclude,
     ],
-    order: [
-      ["id", "DESC"],
-      [{ model: productImages, as: "images" }, "position", "ASC"],
-    ],
+    order: orderClause,
+    limit: limitNum,
+    offset,
+    distinct: true,
   });
 
   return {
     message: "Get all products successfully!",
-    data: productList,
+    data: {
+      totalItems: count,
+      products: rows,
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalItems: count,
+        limit: limitNum,
+      },
+    },
   };
 };
 

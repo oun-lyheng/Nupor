@@ -143,6 +143,13 @@ backend/
 **orderItems**: `id`, `orderId` (FK to orders.id), `productId` (FK to products.id, nullable), `sellerId` (FK to users.id), `productName`, `productImage`, `unitPrice`, `qty`, `subTotal`, timestamps
 **payments**: `id`, `orderId` (FK to orders.id), `amount`, `status` ('pending', 'payment_submitted', 'approved', 'rejected'), `paymentMethod` ('khqr', 'cod'), `receiptUrl`, `receiptPublicId`, `paidAt`, `remark`, timestamps
 
+### Group 5 — Reviews, Wishlists & User Profiles
+> See full details in [REVIEWS_WISHLISTS_AND_USERS.md](./REVIEWS_WISHLISTS_AND_USERS.md)
+
+**reviews**: `id`, `userId` (FK to users.id), `productId` (FK to products.id), `rating` (DECIMAL(2,1)), `comment`, `isVerifiedPurchase`, timestamps. Unique constraint on `(userId, productId)`.
+**wishlists**: `id`, `userId` (FK to users.id), `productId` (FK to products.id), timestamps. Unique constraint on `(userId, productId)`.
+**user_profiles**: `id`, `userId` (FK to users.id, unique), `profile_url`, `profile_publicId`, `bio`, `accountName`, `accountNumber`, `khqrUrl`, `khqrPublic_id`, `isVerified`, `commissionRate`, timestamps.
+
 ---
 
 ## Auth Flow

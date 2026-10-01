@@ -38,6 +38,20 @@ module.exports = (sequelize, DataTypes) => {
         as: 'orderItems',
         onDelete: 'SET NULL'
       });
+
+      // One-to-Many with reviews
+      this.hasMany(models.reviews, {
+        foreignKey: 'productId',
+        as: 'reviews',
+        onDelete: 'CASCADE'
+      });
+
+      // One-to-Many with wishlists
+      this.hasMany(models.wishlists, {
+        foreignKey: 'productId',
+        as: 'wishlists',
+        onDelete: 'CASCADE'
+      });
     }
   }
 
