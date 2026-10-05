@@ -36,6 +36,7 @@ Table user_profiles {
   accountNumber varchar
   khqrUrl varchar
   khqrPublic_id varchar
+  telegramUsername varchar
   isVerified boolean [default: false]
   userId int [ref: - users.id, unique, not null]
   createdAt timestamp
@@ -124,6 +125,28 @@ Table productCategories {
 }
 
 // ===========================
+// Product Variants table (Color, Size, Storage, etc.)
+// ===========================
+Table product_variants {
+  id int [pk, increment]
+  productId int [ref: > products.id, not null]
+  variantName varchar [not null]
+  price decimal(10,2) [not null, default: 0.00]
+  originalPrice decimal(10,2) [null]
+  stock int [not null, default: 0]
+  sku varchar [null]
+  attributes jsonb [null]
+  imageUrl varchar [null]
+  isActive boolean [not null, default: true]
+  createdAt timestamp
+  updatedAt timestamp
+
+  Indexes {
+    productId
+  }
+}
+
+// ===========================
 // Cart table (1 cart per buyer)
 // ===========================
 Table cart {
@@ -140,12 +163,13 @@ Table cartItems {
   id int [pk, increment]
   cartId int [ref: > cart.id, not null]
   productId int [ref: > products.id, not null]
+  variantId int [ref: > product_variants.id, null]
   qty int [not null, default: 1]
   createdAt timestamp
   updatedAt timestamp
 
   Indexes {
-    (cartId, productId) [unique]
+    (cartId, productId, variantId) [unique]
   }
 }
 
@@ -173,6 +197,8 @@ Table orderItems {
   id int [pk, increment]
   orderId int [ref: > orders.id, not null]
   productId int [ref: > products.id, null] // null on delete to preserve history
+  variantId int [ref: > product_variants.id, null]
+  variantName varchar [null]               // historical snapshot e.g. "Titanium / 256GB"
   sellerId int [ref: > users.id, not null]
   productName varchar [not null]           // historical snapshot
   productImage varchar                     // historical snapshot thumbnail
@@ -233,3 +259,45 @@ Table wishlists {
     (userId, productId) [unique] // Unique composite index
   }
 }
+
+// ===========================
+// Addresses table (Buyer Shipping Address Book)
+// ===========================
+Table addresses {
+  id int [pk, increment]
+  userId int [ref: > users.id, not null]
+  label varchar [not null, default: 'Home'] // 'Home', 'Office', etc.
+  receiverName varchar [not null]
+  phoneNumber varchar [not null]
+  streetAddress text [not null]
+  city varchar [not null, default: 'Phnom Penh']
+  isDefault boolean [not null, default: false]
+  createdAt timestamp
+  updatedAt timestamp
+
+  Indexes {
+    userId
+  }
+}
+
+// ===========================
+// Admin Notifications table (In-App Platform Moderation & Alerts)
+// ===========================
+Table admin_notifications {
+  id int [pk, increment]
+  type varchar [not null] // 'low_rating_review', 'new_product_listing', etc.
+  title varchar [not null]
+  message text [not null]
+  data jsonb // metadata: { productId, sellerId, rating, etc. }
+  isRead boolean [not null, default: false]
+  readAt timestamp [null]
+  createdAt timestamp
+  updatedAt timestamp
+
+  Indexes {
+    type
+    isRead
+    createdAt
+  }
+}
+

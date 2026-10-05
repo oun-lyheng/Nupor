@@ -24,6 +24,13 @@ module.exports = (sequelize, DataTypes) => {
         as: 'seller',
         onDelete: 'RESTRICT'
       });
+
+      // Belongs to Variant (optional snapshot reference)
+      this.belongsTo(models.product_variants, {
+        foreignKey: 'variantId',
+        as: 'variant',
+        onDelete: 'SET NULL'
+      });
     }
   }
 
@@ -34,6 +41,14 @@ module.exports = (sequelize, DataTypes) => {
     },
     productId: {
       type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    variantId: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    variantName: {
+      type: DataTypes.STRING,
       allowNull: true
     },
     sellerId: {

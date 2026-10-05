@@ -4,6 +4,9 @@ const {
   getProductById,
   updateProduct,
   deleteProduct,
+  addVariantToProduct,
+  updateVariant,
+  deleteVariant,
 } = require("./Product.service");
 
 // CREATE PRODUCT
@@ -19,6 +22,7 @@ const createProductController = async (req, res) => {
       stock,
       categoryIds,
       isBestSeller = false,
+      variants,
     } = req.body;
 
     const result = await createProduct({
@@ -30,6 +34,7 @@ const createProductController = async (req, res) => {
       stock,
       categoryIds,
       isBestSeller,
+      variants,
     });
 
     return res.status(201).json({
@@ -167,10 +172,115 @@ const removeProductController = async (req, res) => {
   }
 };
 
+// ADD VARIANT TO PRODUCT
+const addVariantController = async (req, res) => {
+  try {
+    const productId = req.params.id;
+    const userId = req.user.id;
+    const {
+      variantName,
+      price,
+      originalPrice,
+      stock,
+      sku,
+      attributes,
+      imageUrl,
+    } = req.body;
+
+    const result = await addVariantToProduct({
+      productId,
+      userId,
+      variantName,
+      price,
+      originalPrice,
+      stock,
+      sku,
+      attributes,
+      imageUrl,
+    });
+
+    return res.status(201).json({
+      message: result.message,
+      data: result.data,
+    });
+  } catch (error) {
+    const statusCode = error.status || 500;
+    return res.status(statusCode).json({
+      message: error.message,
+    });
+  }
+};
+
+// UPDATE VARIANT
+const updateVariantController = async (req, res) => {
+  try {
+    const { variantId } = req.params;
+    const userId = req.user.id;
+    const {
+      variantName,
+      price,
+      originalPrice,
+      stock,
+      sku,
+      attributes,
+      imageUrl,
+      isActive,
+    } = req.body;
+
+    const result = await updateVariant({
+      variantId,
+      userId,
+      variantName,
+      price,
+      originalPrice,
+      stock,
+      sku,
+      attributes,
+      imageUrl,
+      isActive,
+    });
+
+    return res.status(200).json({
+      message: result.message,
+      data: result.data,
+    });
+  } catch (error) {
+    const statusCode = error.status || 500;
+    return res.status(statusCode).json({
+      message: error.message,
+    });
+  }
+};
+
+// DELETE VARIANT
+const deleteVariantController = async (req, res) => {
+  try {
+    const { variantId } = req.params;
+    const userId = req.user.id;
+
+    const result = await deleteVariant({
+      variantId,
+      userId,
+    });
+
+    return res.status(200).json({
+      message: result.message,
+    });
+  } catch (error) {
+    const statusCode = error.status || 500;
+    return res.status(statusCode).json({
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   createProductController,
   getAllProductsController,
   getProductByIdController,
   updateProductByIdController,
   removeProductController,
+  addVariantController,
+  updateVariantController,
+  deleteVariantController,
 };

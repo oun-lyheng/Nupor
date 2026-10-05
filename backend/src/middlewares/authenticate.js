@@ -46,6 +46,26 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
+const requireSeller = (req, res, next) => {
+  if (!req.user || (!req.user.isSeller && req.user.role !== "admin")) {
+    return res.status(403).json({
+      message: "Access restricted: You must be a registered seller to access this resource!",
+    });
+  }
+  next();
+};
+
+const requireAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== "admin") {
+    return res.status(403).json({
+      message: "Access restricted: Administrator privileges required!",
+    });
+  }
+  next();
+};
+
 module.exports = {
-  authenticateToken
+  authenticateToken,
+  requireSeller,
+  requireAdmin,
 };

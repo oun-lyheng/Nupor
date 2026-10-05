@@ -1,4 +1,13 @@
-const { products, categories, productCategories, productImages } = require("../../models");
+const {
+  products,
+  categories,
+  productCategories,
+  productImages,
+  product_variants,
+  admin_notifications,
+  users,
+  user_profiles,
+} = require("../../models");
 const { throwError } = require("../../utils/appError");
 const slugify = require("slugify");
 const crypto = require("crypto");
@@ -30,7 +39,24 @@ const generateUniqueProductSlug = async (productName, currentProductId = null) =
   return `${baseSlug}-${randomSuffix}`;
 };
 
-// CREATE PRODUCT
+// Helper function to sync product stock from its variants
+const syncProductStockFromVariants = async (productId) => {
+  const variantCount = await product_variants.count({
+    where: { productId, isActive: true },
+  });
+
+  if (variantCount > 0) {
+    const totalStock = await product_variants.sum("stock", {
+      where: { productId, isActive: true },
+    });
+    await products.update(
+      { stock: totalStock || 0 },
+      { where: { id: productId } }
+    );
+  }
+};
+
+// CREATE PRODUCT (Supports optional variants array)
 const createProduct = async ({
   categoryIds,
   userId,
@@ -42,13 +68,21 @@ const createProduct = async ({
   isBestSeller = false,
   avgRating = 0.0,
   isActive = true,
+  variants = [],
 }) => {
-  if (!productName || !description || price === undefined || stock === undefined) {
+  if (!productName || !description || price === undefined) {
     throwError("Please provide all required product fields!", 400);
   }
 
   if (!userId) {
     throwError("User Id is required!", 400);
+  }
+
+  // If variants provided, calculate total stock from variants if stock is not provided
+  let calculatedStock = stock !== undefined ? parseInt(stock, 10) : 0;
+  if (Array.isArray(variants) && variants.length > 0) {
+    const variantTotal = variants.reduce((sum, v) => sum + (parseInt(v.stock, 10) || 0), 0);
+    calculatedStock = variantTotal;
   }
 
   const slugName = await generateUniqueProductSlug(productName);
@@ -59,7 +93,7 @@ const createProduct = async ({
     description,
     price,
     originalPrice: originalPrice !== undefined ? originalPrice : price,
-    stock,
+    stock: calculatedStock,
     isBestSeller,
     avgRating,
     isActive,
@@ -70,6 +104,24 @@ const createProduct = async ({
   if (categoryIds) {
     const ids = Array.isArray(categoryIds) ? categoryIds : [categoryIds];
     await product.setCategories(ids);
+  }
+
+  // Create variants if provided
+  if (Array.isArray(variants) && variants.length > 0) {
+    for (const v of variants) {
+      if (!v.variantName) continue;
+      await product_variants.create({
+        productId: product.id,
+        variantName: v.variantName,
+        price: v.price !== undefined ? v.price : price,
+        originalPrice: v.originalPrice !== undefined ? v.originalPrice : (originalPrice || price),
+        stock: v.stock !== undefined ? parseInt(v.stock, 10) : 0,
+        sku: v.sku || null,
+        attributes: v.attributes || null,
+        imageUrl: v.imageUrl || null,
+        isActive: v.isActive !== undefined ? Boolean(v.isActive) : true,
+      });
+    }
   }
 
   const fullProduct = await products.findOne({
@@ -84,9 +136,35 @@ const createProduct = async ({
         as: "categories",
         through: { attributes: [] },
       },
+      {
+        model: product_variants,
+        as: "variants",
+        where: { isActive: true },
+        required: false,
+      },
     ],
     order: [[{ model: productImages, as: "images" }, "position", "ASC"]],
   });
+
+  // Create Admin Notification for New Product Listing
+  try {
+    const seller = await users.findByPk(userId, { attributes: ["id", "fullName", "userName"] });
+    const sellerName = seller?.fullName || seller?.userName || "Seller";
+    await admin_notifications.create({
+      type: "new_product_listing",
+      title: "📦 New Product Listed",
+      message: `📦 New Product Listed: '${fullProduct.productName}' ($${parseFloat(fullProduct.price).toFixed(2)}) added by seller ${sellerName}.`,
+      data: {
+        productId: fullProduct.id,
+        productName: fullProduct.productName,
+        price: parseFloat(fullProduct.price).toFixed(2),
+        sellerId: userId,
+        sellerName,
+      },
+    });
+  } catch (notifErr) {
+    console.error("Failed to create admin notification for product:", notifErr.message);
+  }
 
   return {
     message: "Product created successfully!",
@@ -191,6 +269,12 @@ const getAllProducts = async ({
         as: "images",
       },
       categoryInclude,
+      {
+        model: product_variants,
+        as: "variants",
+        where: { isActive: true },
+        required: false,
+      },
     ],
     order: orderClause,
     limit: limitNum,
@@ -231,6 +315,24 @@ const getProductById = async (id) => {
         as: "categories",
         through: { attributes: [] },
       },
+      {
+        model: product_variants,
+        as: "variants",
+        where: { isActive: true },
+        required: false,
+      },
+      {
+        model: users,
+        as: "seller",
+        attributes: ["id", "fullName", "userName", "phoneNumber"],
+        include: [
+          {
+            model: user_profiles,
+            as: "profile",
+            attributes: ["profile_url", "accountName", "telegramUsername"],
+          },
+        ],
+      },
     ],
     order: [[{ model: productImages, as: "images" }, "position", "ASC"]],
   });
@@ -239,9 +341,24 @@ const getProductById = async (id) => {
     throwError("Product not found with this ID!", 404);
   }
 
+  const rawTelegram = product.seller?.profile?.telegramUsername;
+  const sellerTelegramUsername = rawTelegram
+    ? rawTelegram.replace(/^@+/, "").trim()
+    : null;
+  const inquiryMessage = `Hello! I saw your product "${product.productName}" ($${parseFloat(product.price).toFixed(2)}) on Nupor Marketplace. Is it still available?`;
+  const telegramInquiryUrl = sellerTelegramUsername
+    ? `https://t.me/${sellerTelegramUsername}?text=${encodeURIComponent(inquiryMessage)}`
+    : null;
+
   return {
     message: "Get product details successfully!",
-    data: product,
+    data: {
+      ...product.toJSON(),
+      sellerTelegram: {
+        username: sellerTelegramUsername,
+        inquiryUrl: telegramInquiryUrl,
+      },
+    },
   };
 };
 
@@ -301,6 +418,12 @@ const updateProduct = async ({
         as: "categories",
         through: { attributes: [] },
       },
+      {
+        model: product_variants,
+        as: "variants",
+        where: { isActive: true },
+        required: false,
+      },
     ],
     order: [[{ model: productImages, as: "images" }, "position", "ASC"]],
   });
@@ -330,10 +453,122 @@ const deleteProduct = async ({ id, userId }) => {
   };
 };
 
+// ADD VARIANT TO PRODUCT (Seller only)
+const addVariantToProduct = async ({
+  productId,
+  userId,
+  variantName,
+  price,
+  originalPrice,
+  stock = 0,
+  sku,
+  attributes,
+  imageUrl,
+}) => {
+  if (!productId || !variantName || price === undefined) {
+    throwError("productId, variantName, and price are required!", 400);
+  }
+
+  const product = await products.findOne({ where: { id: productId, userId } });
+  if (!product) {
+    throwError("Product not found or unauthorized!", 404);
+  }
+
+  const variant = await product_variants.create({
+    productId,
+    variantName,
+    price,
+    originalPrice: originalPrice !== undefined ? originalPrice : price,
+    stock: parseInt(stock, 10) || 0,
+    sku: sku || null,
+    attributes: attributes || null,
+    imageUrl: imageUrl || null,
+    isActive: true,
+  });
+
+  await syncProductStockFromVariants(productId);
+
+  return {
+    message: "Product variant added successfully!",
+    data: variant,
+  };
+};
+
+// UPDATE VARIANT (Seller only)
+const updateVariant = async ({
+  variantId,
+  userId,
+  variantName,
+  price,
+  originalPrice,
+  stock,
+  sku,
+  attributes,
+  imageUrl,
+  isActive,
+}) => {
+  const variant = await product_variants.findByPk(variantId, {
+    include: [{ model: products, as: "product" }],
+  });
+
+  if (!variant) {
+    throwError("Variant not found!", 404);
+  }
+
+  if (variant.product.userId !== userId) {
+    throwError("Unauthorized to update this variant!", 403);
+  }
+
+  if (variantName !== undefined) variant.variantName = variantName;
+  if (price !== undefined) variant.price = price;
+  if (originalPrice !== undefined) variant.originalPrice = originalPrice;
+  if (stock !== undefined) variant.stock = parseInt(stock, 10);
+  if (sku !== undefined) variant.sku = sku;
+  if (attributes !== undefined) variant.attributes = attributes;
+  if (imageUrl !== undefined) variant.imageUrl = imageUrl;
+  if (isActive !== undefined) variant.isActive = Boolean(isActive);
+
+  await variant.save();
+
+  await syncProductStockFromVariants(variant.productId);
+
+  return {
+    message: "Product variant updated successfully!",
+    data: variant,
+  };
+};
+
+// DELETE VARIANT (Seller only)
+const deleteVariant = async ({ variantId, userId }) => {
+  const variant = await product_variants.findByPk(variantId, {
+    include: [{ model: products, as: "product" }],
+  });
+
+  if (!variant) {
+    throwError("Variant not found!", 404);
+  }
+
+  if (variant.product.userId !== userId) {
+    throwError("Unauthorized to delete this variant!", 403);
+  }
+
+  const productId = variant.productId;
+  await variant.destroy();
+
+  await syncProductStockFromVariants(productId);
+
+  return {
+    message: "Product variant deleted successfully!",
+  };
+};
+
 module.exports = {
   createProduct,
   getAllProducts,
   getProductById,
   updateProduct,
   deleteProduct,
+  addVariantToProduct,
+  updateVariant,
+  deleteVariant,
 };

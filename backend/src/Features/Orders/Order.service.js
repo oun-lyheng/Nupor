@@ -6,6 +6,7 @@ const {
   cartItems,
   products,
   productImages,
+  product_variants,
   users,
   user_profiles,
   sequelize,
@@ -38,6 +39,7 @@ const getFullOrderData = async (orderId, transaction = null) => {
               "accountName",
               "accountNumber",
               "khqrUrl",
+              "telegramUsername",
             ],
           },
         ],
@@ -53,6 +55,55 @@ const getFullOrderData = async (orderId, transaction = null) => {
     ],
     transaction,
   });
+};
+
+/**
+ * Helper to build pre-formatted Telegram chat data & link
+ */
+const generateOrderTelegramChatInfo = (order) => {
+  const seller = order.seller;
+  const rawTelegramUsername = seller?.profile?.telegramUsername;
+  const sellerTelegramUsername = rawTelegramUsername
+    ? rawTelegramUsername.replace(/^@+/, "").trim()
+    : null;
+
+  let itemsText = "";
+  if (order.items && order.items.length > 0) {
+    itemsText = order.items
+      .map(
+        (item, idx) => {
+          const displayName = item.variantName
+            ? `${item.productName} (${item.variantName})`
+            : item.productName;
+          return `  ${idx + 1}. ${displayName} (x${item.qty}) — $${parseFloat(item.subTotal).toFixed(2)}`;
+        }
+      )
+      .join("\n");
+  }
+
+  const orderSummaryText = [
+    `🛍️ *Nupor Order #${order.orderNumber}*`,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `📦 *Products Ordered:*`,
+    itemsText || "  (No items)",
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `💰 *Total Amount:* $${parseFloat(order.totalAmount).toFixed(2)}`,
+    `👤 *Buyer:* ${order.receiverName || order.buyer?.fullName || "Customer"}`,
+    `📞 *Phone:* ${order.phoneNumber || order.buyer?.phoneNumber || "N/A"}`,
+    `📍 *Deliver to:* ${order.shippingAddress || "N/A"}`,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `Hello! I just placed this order on Nupor Marketplace. Please confirm availability and delivery details. Thank you! 🙏`,
+  ].join("\n");
+
+  const telegramChatUrl = sellerTelegramUsername
+    ? `https://t.me/${sellerTelegramUsername}?text=${encodeURIComponent(orderSummaryText)}`
+    : null;
+
+  return {
+    sellerTelegramUsername,
+    orderSummaryText,
+    telegramChatUrl,
+  };
 };
 
 /**
@@ -104,6 +155,10 @@ const checkoutFromCart = async ({
               as: "product",
               include: [{ model: productImages, as: "images" }],
             },
+            {
+              model: product_variants,
+              as: "variant",
+            },
           ],
         },
       ],
@@ -130,6 +185,7 @@ const checkoutFromCart = async ({
 
     for (const item of sellerItems) {
       const prod = item.product;
+      const variant = item.variant;
 
       if (!prod.isActive) {
         throwError(
@@ -138,20 +194,33 @@ const checkoutFromCart = async ({
         );
       }
 
-      if (prod.stock < item.qty) {
+      if (variant && !variant.isActive) {
         throwError(
-          `Insufficient stock for "${prod.productName}". Only ${prod.stock} items left in stock.`,
+          `Variant "${variant.variantName}" of "${prod.productName}" is no longer available!`,
           400
         );
       }
 
-      const unitPrice = parseFloat(prod.price);
+      // Check stock against variant or product
+      const availableStock = variant ? variant.stock : prod.stock;
+      const itemTitle = variant
+        ? `${prod.productName} (${variant.variantName})`
+        : prod.productName;
+
+      if (availableStock < item.qty) {
+        throwError(
+          `Insufficient stock for "${itemTitle}". Only ${availableStock} left in stock.`,
+          400
+        );
+      }
+
+      const unitPrice = variant ? parseFloat(variant.price) : parseFloat(prod.price);
       const subTotal = parseFloat((unitPrice * item.qty).toFixed(2));
       totalAmount += subTotal;
 
-      // Pick main image (position 1 or first image)
-      let mainImageUrl = null;
-      if (prod.images && prod.images.length > 0) {
+      // Pick main image (variant imageUrl or product position 1 image)
+      let mainImageUrl = variant?.imageUrl || null;
+      if (!mainImageUrl && prod.images && prod.images.length > 0) {
         const sortedImgs = [...prod.images].sort(
           (a, b) => (a.position || 99) - (b.position || 99)
         );
@@ -160,6 +229,8 @@ const checkoutFromCart = async ({
 
       itemsToCreate.push({
         productId: prod.id,
+        variantId: variant ? variant.id : null,
+        variantName: variant ? variant.variantName : null,
         sellerId: targetSellerId,
         productName: prod.productName,
         productImage: mainImageUrl,
@@ -195,8 +266,15 @@ const checkoutFromCart = async ({
     }));
     await orderItems.bulkCreate(orderItemsWithOrderId, { transaction: t });
 
-    // 6. Decrement Stock for this seller's products
+    // 6. Decrement Stock for this seller's products and variants
     for (const item of sellerItems) {
+      if (item.variantId) {
+        await product_variants.decrement("stock", {
+          by: item.qty,
+          where: { id: item.variantId },
+          transaction: t,
+        });
+      }
       await products.decrement("stock", {
         by: item.qty,
         where: { id: item.productId },
@@ -228,12 +306,14 @@ const checkoutFromCart = async ({
     // 10. Fetch Seller Payment Info to return directly to the buyer
     const sellerProfile = await user_profiles.findOne({
       where: { userId: targetSellerId },
-      attributes: ["accountName", "accountNumber", "khqrUrl"],
+      attributes: ["accountName", "accountNumber", "khqrUrl", "telegramUsername"],
       transaction: t,
     });
 
+    const telegramChat = generateOrderTelegramChatInfo(completedOrder);
+
     return {
-      message: "Order placed successfully! Please scan the seller's KHQR to complete payment.",
+      message: "Order placed successfully! Please scan the seller's KHQR or chat with the seller on Telegram.",
       data: {
         order: completedOrder,
         sellerPaymentInfo: {
@@ -241,8 +321,10 @@ const checkoutFromCart = async ({
           accountName: sellerProfile?.accountName,
           accountNumber: sellerProfile?.accountNumber,
           khqrUrl: sellerProfile?.khqrUrl,
+          telegramUsername: sellerProfile?.telegramUsername,
           amountDue: totalAmount,
         },
+        telegramChat,
       },
     };
   });
@@ -436,9 +518,14 @@ const getOrderById = async ({ orderId, userId, role }) => {
     throwError("You are not authorized to view this order!", 403);
   }
 
+  const telegramChat = generateOrderTelegramChatInfo(order);
+
   return {
     message: "Order details retrieved successfully",
-    data: order,
+    data: {
+      ...order.toJSON(),
+      telegramChat,
+    },
   };
 };
 
@@ -522,6 +609,13 @@ const updateOrderStatus = async ({ orderId, status, userId, role }) => {
     // Restore inventory stock if cancelled
     if (status === "cancelled" && order.orderStatus !== "cancelled") {
       for (const item of order.items) {
+        if (item.variantId) {
+          await product_variants.increment("stock", {
+            by: item.qty,
+            where: { id: item.variantId },
+            transaction: t,
+          });
+        }
         if (item.productId) {
           await products.increment("stock", {
             by: item.qty,

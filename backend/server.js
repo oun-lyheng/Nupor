@@ -91,7 +91,19 @@ app.use("/api", reviewRouter);
 const wishlistRouter = require("./src/Features/Wishlists/Wishlist.routes");
 app.use("/api", wishlistRouter);
 
+// ADDRESS ROUTES
+const addressRouter = require("./src/Features/Addresses/Address.routes");
+app.use("/api", addressRouter);
+
+// SELLER DASHBOARD ROUTES
+const sellerDashboardRouter = require("./src/Features/SellerDashboard/SellerDashboard.routes");
+app.use("/api", sellerDashboardRouter);
+
+// ADMIN ROUTES
+const adminRouter = require("./src/Features/Admin/Admin.routes");
+app.use("/api", adminRouter);
+
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
-});
+});

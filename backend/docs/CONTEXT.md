@@ -134,13 +134,13 @@ backend/
 
 ### Group 3 — Cart
 **cart**: `id`, `buyerId` (FK to users.id, unique), timestamps
-**cartItems**: `id`, `cartId` (FK to cart.id), `productId` (FK to products.id), `qty`, timestamps. Unique constraint on `(cartId, productId)`.
+**cartItems**: `id`, `cartId` (FK to cart.id), `productId` (FK to products.id), `variantId` (FK to product_variants.id, nullable), `qty`, timestamps. Unique constraint on `(cartId, productId, variantId)`.
 
 ### Group 4 — Orders & Direct Payments (Shopee Style)
 > See full details in [CHECKOUT_AND_PAYMENT_FLOW.md](./CHECKOUT_AND_PAYMENT_FLOW.md)
 
 **orders**: `id`, `buyerId` (FK to users.id), `sellerId` (FK to users.id), `orderNumber` (STRING, unique), `orderStatus` ('pending', 'payment_submitted', 'processing', 'completed', 'cancelled'), `totalAmount`, `shippingAddress`, `receiverName`, `phoneNumber`, timestamps
-**orderItems**: `id`, `orderId` (FK to orders.id), `productId` (FK to products.id, nullable), `sellerId` (FK to users.id), `productName`, `productImage`, `unitPrice`, `qty`, `subTotal`, timestamps
+**orderItems**: `id`, `orderId` (FK to orders.id), `productId` (FK to products.id, nullable), `variantId` (FK to product_variants.id, nullable), `variantName` (STRING, snapshot), `sellerId` (FK to users.id), `productName`, `productImage`, `unitPrice`, `qty`, `subTotal`, timestamps
 **payments**: `id`, `orderId` (FK to orders.id), `amount`, `status` ('pending', 'payment_submitted', 'approved', 'rejected'), `paymentMethod` ('khqr', 'cod'), `receiptUrl`, `receiptPublicId`, `paidAt`, `remark`, timestamps
 
 ### Group 5 — Reviews, Wishlists & User Profiles
@@ -148,7 +148,29 @@ backend/
 
 **reviews**: `id`, `userId` (FK to users.id), `productId` (FK to products.id), `rating` (DECIMAL(2,1)), `comment`, `isVerifiedPurchase`, timestamps. Unique constraint on `(userId, productId)`.
 **wishlists**: `id`, `userId` (FK to users.id), `productId` (FK to products.id), timestamps. Unique constraint on `(userId, productId)`.
-**user_profiles**: `id`, `userId` (FK to users.id, unique), `profile_url`, `profile_publicId`, `bio`, `accountName`, `accountNumber`, `khqrUrl`, `khqrPublic_id`, `isVerified`, `commissionRate`, timestamps.
+**user_profiles**: `id`, `userId` (FK to users.id, unique), `profile_url`, `profile_publicId`, `bio`, `accountName`, `accountNumber`, `khqrUrl`, `khqrPublic_id`, `telegramUsername`, `isVerified`, `commissionRate`, timestamps.
+
+### Group 6 — Addresses, Seller Analytics & Platform Administration
+> See full details in [SELLER_ADDRESSES_AND_ADMIN.md](./SELLER_ADDRESSES_AND_ADMIN.md)
+
+**addresses**: `id`, `userId` (FK to users.id), `label`, `receiverName`, `phoneNumber`, `streetAddress`, `city`, `isDefault`, timestamps.
+**Seller Dashboard**: `/api/seller/dashboard/overview`, `/top-products`, `/recent-orders`, `/sales-chart` (requires `isSeller: true`).
+**Admin Moderation**: `/api/admin/overview`, `/users` (search, filter, block/unblock), `/products` (moderation ban/unban), `/orders` (requires `role: 'admin'`).
+
+### Group 7 — Telegram Direct Chat & Conversational Order Flow
+> See full details in [TELEGRAM_DIRECT_CHAT_AND_ORDERS.md](./TELEGRAM_DIRECT_CHAT_AND_ORDERS.md)
+
+**Telegram Chat Integration**:
+- Sellers configure their Telegram handle (`@username` or `username`) via `PATCH /api/users/profile` or `PATCH /api/users/seller/payment-info`.
+- Pre-purchase inquiries on `GET /api/products/:id` with automatic `sellerTelegram.inquiryUrl`.
+- Post-checkout conversational flow on `POST /api/orders/checkout` & `GET /api/orders/:id` returning `telegramChat.orderSummaryText` and `telegramChat.telegramChatUrl` with pre-filled itemized product receipt.
+
+### Group 8 — Product Variants (Color, Size, Storage, etc.)
+> See full details in [PRODUCT_VARIANTS.md](./PRODUCT_VARIANTS.md)
+
+**product_variants**: `id`, `productId` (FK to products.id), `variantName`, `price`, `originalPrice`, `stock`, `sku`, `attributes` (JSONB), `imageUrl`, `isActive`, timestamps.
+- Total product stock automatically synchronizes to sum of variant stocks.
+- Cart and checkout atomically validate and deduct stock per variant and preserve variant names on orders.
 
 ---
 
@@ -196,3 +218,15 @@ Standard JSON responses are returned from the controllers directly (e.g. `{ resu
 - Access Token lifespan: 15 minutes.
 - Refresh Token lifespan: 7 days.
 - Refresh tokens are rotation-ready and validated against the database.
+
+---
+
+## In-App Admin Notifications
+- **Table**: `admin_notifications`
+- **Supported Triggers**:
+  1. ⭐ **1-Star Review Alert** (`low_rating_review`): Created whenever a customer leaves or updates a product rating $\le 1.0$. Alerts admins with product, comment, and seller details to audit possible counterfeit items.
+  2. 📦 **New Product Listed** (`new_product_listing`): Created whenever a seller lists a new product. Provides product name, price, and seller name for immediate catalog moderation.
+- **Admin Management API**:
+  - `GET /api/admin/notifications`: Paginated list of notifications with `unreadCount`. Filter by `type` and `isRead`.
+  - `PATCH /api/admin/notifications/:id/read`: Mark an individual notification as read.
+  - `PATCH /api/admin/notifications/read-all`: Mark all unread notifications as read.

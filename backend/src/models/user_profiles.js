@@ -52,6 +52,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true
     },
+    telegramUsername: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
     isVerified: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,

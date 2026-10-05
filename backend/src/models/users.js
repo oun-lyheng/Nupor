@@ -67,6 +67,12 @@ module.exports = (sequelize, DataTypes) => {
         as: 'wishlists',
         onDelete: 'CASCADE'
       });
+      // One-to-Many with addresses
+      this.hasMany(models.addresses, {
+        foreignKey: 'userId',
+        as: 'addresses',
+        onDelete: 'CASCADE'
+      });
     }
   }
   users.init({

@@ -27,7 +27,7 @@ const getUserProfileController = async (req, res) => {
 const updateUserProfileController = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { fullName, phoneNumber, gender, bio } = req.body;
+    const { fullName, phoneNumber, gender, bio, telegramUsername } = req.body;
     const fileBuffer = req.file ? req.file.buffer : null;
 
     const result = await updateUserProfile({
@@ -36,6 +36,7 @@ const updateUserProfileController = async (req, res) => {
       phoneNumber,
       gender,
       bio,
+      telegramUsername,
       fileBuffer,
     });
 
@@ -55,13 +56,14 @@ const updateUserProfileController = async (req, res) => {
 const updateSellerPaymentInfoController = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { accountName, accountNumber } = req.body;
+    const { accountName, accountNumber, telegramUsername } = req.body;
     const fileBuffer = req.file ? req.file.buffer : null;
 
     const result = await updateSellerPaymentInfo({
       userId,
       accountName,
       accountNumber,
+      telegramUsername,
       fileBuffer,
     });
 

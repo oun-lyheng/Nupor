@@ -5,6 +5,7 @@ const {
   user_profiles,
   orders,
   orderItems,
+  admin_notifications,
   sequelize,
 } = require("../../models");
 const { throwError } = require("../../utils/appError");
@@ -78,7 +79,7 @@ const createProductReview = async ({ userId, productId, rating, comment }) => {
   const isVerifiedPurchase = !!verifiedOrder;
 
   // 4. Save review and update product average rating atomically
-  return await sequelize.transaction(async (t) => {
+  const result = await sequelize.transaction(async (t) => {
     const newReview = await reviews.create(
       {
         userId,
@@ -120,6 +121,37 @@ const createProductReview = async ({ userId, productId, rating, comment }) => {
       },
     };
   });
+
+  // 5. In-App Admin Notification for 1-Star / Negative Review
+  if (numRating <= 1.0) {
+    try {
+      const seller = await users.findByPk(product.userId, {
+        attributes: ["id", "fullName", "userName"],
+      });
+      const sellerName = seller?.fullName || seller?.userName || "Seller";
+      const cleanComment = comment && comment.trim().length > 0 ? comment.trim() : "No comment";
+
+      await admin_notifications.create({
+        type: "low_rating_review",
+        title: "⭐ 1-Star Review Alert!",
+        message: `Customer left a ${numRating.toFixed(1)} rating on '${product.productName}': '${cleanComment}'. Seller: ${sellerName}.`,
+        data: {
+          reviewId: result.data.review.id,
+          productId: product.id,
+          productName: product.productName,
+          rating: numRating,
+          comment: cleanComment,
+          sellerId: product.userId,
+          sellerName,
+          buyerId: userId,
+        },
+      });
+    } catch (notifErr) {
+      console.error("Failed to create admin notification for 1-star review:", notifErr.message);
+    }
+  }
+
+  return result;
 };
 
 /**
@@ -145,7 +177,7 @@ const updateReview = async ({ reviewId, userId, rating, comment }) => {
     }
   }
 
-  return await sequelize.transaction(async (t) => {
+  const result = await sequelize.transaction(async (t) => {
     review.rating = numRating;
     if (comment !== undefined) {
       review.comment = comment ? comment.trim() : null;
@@ -181,6 +213,43 @@ const updateReview = async ({ reviewId, userId, rating, comment }) => {
       },
     };
   });
+
+  // In-App Admin Notification if updated to 1-Star / Negative Review
+  if (numRating <= 1.0) {
+    try {
+      const product = await products.findByPk(review.productId, {
+        attributes: ["id", "productName", "userId"],
+      });
+      if (product) {
+        const seller = await users.findByPk(product.userId, {
+          attributes: ["id", "fullName", "userName"],
+        });
+        const sellerName = seller?.fullName || seller?.userName || "Seller";
+        const cleanComment = review.comment || "No comment";
+
+        await admin_notifications.create({
+          type: "low_rating_review",
+          title: "⭐ 1-Star Review Alert!",
+          message: `Customer left a ${numRating.toFixed(1)} rating on '${product.productName}': '${cleanComment}'. Seller: ${sellerName}.`,
+          data: {
+            reviewId: review.id,
+            productId: product.id,
+            productName: product.productName,
+            rating: numRating,
+            comment: cleanComment,
+            sellerId: product.userId,
+            sellerName,
+            buyerId: userId,
+            isUpdated: true,
+          },
+        });
+      }
+    } catch (notifErr) {
+      console.error("Failed to create admin notification for updated 1-star review:", notifErr.message);
+    }
+  }
+
+  return result;
 };
 
 /**

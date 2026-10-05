@@ -38,8 +38,16 @@ const getUserProfile = async (userId) => {
   };
 };
 
+const sanitizeTelegramUsername = (username) => {
+  if (!username) return null;
+  let clean = username.trim();
+  clean = clean.replace(/^(?:https?:\/\/)?(?:www\.)?t\.me\//i, "");
+  clean = clean.replace(/^@+/, "");
+  return clean || null;
+};
+
 /**
- * UPDATE USER PROFILE (Name, Phone, Gender, Bio, Avatar image)
+ * UPDATE USER PROFILE (Name, Phone, Gender, Bio, Telegram, Avatar image)
  */
 const updateUserProfile = async ({
   userId,
@@ -47,6 +55,7 @@ const updateUserProfile = async ({
   phoneNumber,
   gender,
   bio,
+  telegramUsername,
   fileBuffer,
 }) => {
   const user = await users.findByPk(userId, {
@@ -82,6 +91,11 @@ const updateUserProfile = async ({
   if (bio !== undefined) {
     profile.bio = bio ? bio.trim() : null;
   }
+
+  if (telegramUsername !== undefined) {
+    profile.telegramUsername = sanitizeTelegramUsername(telegramUsername);
+  }
+
   await profile.save();
 
   const updatedUser = await users.findByPk(userId, {
@@ -96,12 +110,13 @@ const updateUserProfile = async ({
 };
 
 /**
- * UPDATE SELLER PAYMENT INFO (KHQR image, Account Name, Account Number)
+ * UPDATE SELLER PAYMENT INFO (KHQR image, Account Name, Account Number, Telegram)
  */
 const updateSellerPaymentInfo = async ({
   userId,
   accountName,
   accountNumber,
+  telegramUsername,
   fileBuffer,
 }) => {
   const user = await users.findByPk(userId, {
@@ -133,6 +148,10 @@ const updateSellerPaymentInfo = async ({
 
   if (accountNumber !== undefined) {
     profile.accountNumber = accountNumber ? accountNumber.trim() : null;
+  }
+
+  if (telegramUsername !== undefined) {
+    profile.telegramUsername = sanitizeTelegramUsername(telegramUsername);
   }
 
   await profile.save();

@@ -3,6 +3,7 @@ const {
   cartItems,
   products,
   productImages,
+  product_variants,
   users,
   user_profiles,
 } = require("../../models");
@@ -31,6 +32,10 @@ const getFullCartData = async (cartId) => {
         model: cartItems,
         as: "items",
         include: [
+          {
+            model: product_variants,
+            as: "variant",
+          },
           {
             model: products,
             as: "product",
@@ -69,13 +74,19 @@ const getFullCartData = async (cartId) => {
   const shopsMap = {};
 
   const itemsWithSubtotal = fullCart.items.map((item) => {
-    const unitPrice = parseFloat(item.product.price);
+    // If item has a variant, use variant price; otherwise use base product price
+    const unitPrice = item.variant
+      ? parseFloat(item.variant.price)
+      : parseFloat(item.product.price);
     const subtotal = unitPrice * item.qty;
     grandTotal += subtotal;
     totalItems += item.qty;
 
     const formattedItem = {
       ...item.toJSON(),
+      unitPrice,
+      variantName: item.variant ? item.variant.variantName : null,
+      variantAttributes: item.variant ? item.variant.attributes : null,
       subtotal: parseFloat(subtotal.toFixed(2)),
     };
 
@@ -135,9 +146,9 @@ const getBuyerCart = async (buyerId) => {
 
 /**
  * ADD PRODUCT TO CART
- * - If product is already in cart, increment quantity.
+ * - If product (or product variant) is already in cart, increment quantity.
  */
-const addProductToCart = async ({ buyerId, productId, qty = 1 }) => {
+const addProductToCart = async ({ buyerId, productId, variantId = null, qty = 1 }) => {
   if (!buyerId || !productId || !qty) {
     throwError("Please provide all required fields!", 400);
   }
@@ -162,41 +173,60 @@ const addProductToCart = async ({ buyerId, productId, qty = 1 }) => {
     throwError("You cannot add your own product to your cart", 400);
   }
 
-  // 4. Get or create buyer's cart
+  // 4. Validate variant if provided
+  let variant = null;
+  if (variantId) {
+    variant = await product_variants.findOne({
+      where: { id: variantId, productId: product.id, isActive: true },
+    });
+    if (!variant) {
+      throwError("Selected product variant not found or unavailable", 404);
+    }
+  }
+
+  // 5. Get or create buyer's cart
   const userCart = await getOrCreateCart(buyerId);
 
-  // 5. Check existing item in cart & validate stock
-  const existingItem = await cartItems.findOne({
-    where: { cartId: userCart.id, productId: product.id },
-  });
+  // 6. Check existing item in cart & validate stock
+  const itemWhere = {
+    cartId: userCart.id,
+    productId: product.id,
+    variantId: variant ? variant.id : null,
+  };
+
+  const existingItem = await cartItems.findOne({ where: itemWhere });
 
   const alreadyInCart = existingItem ? existingItem.qty : 0;
   const totalRequested = alreadyInCart + quantity;
 
-  if (totalRequested > product.stock) {
+  const availableStock = variant ? variant.stock : product.stock;
+  const itemLabel = variant ? `variant "${variant.variantName}"` : "product";
+
+  if (totalRequested > availableStock) {
     throwError(
-      `Only ${product.stock} item(s) in stock (you already have ${alreadyInCart} in cart)`,
-      400,
+      `Only ${availableStock} item(s) in stock for this ${itemLabel} (you already have ${alreadyInCart} in cart)`,
+      400
     );
   }
 
-  // 6. Insert or update item in cart
+  // 7. Insert or update item in cart
   if (existingItem) {
     await existingItem.update({ qty: totalRequested });
   } else {
     await cartItems.create({
       cartId: userCart.id,
       productId: product.id,
+      variantId: variant ? variant.id : null,
       qty: quantity,
     });
   }
 
-  // 7. Return full updated cart
+  // 8. Return full updated cart
   const data = await getFullCartData(userCart.id);
 
   return {
     message: existingItem
-      ? "Product quantity updated in cart"
+      ? "Cart item quantity updated"
       : "Product added to cart",
     data,
   };
@@ -206,9 +236,15 @@ const addProductToCart = async ({ buyerId, productId, qty = 1 }) => {
  * UPDATE OR DECREASE QUANTITY
  * If new qty <= 0, automatically removes the item from the cart.
  */
-const updateCartItemQuantity = async ({ buyerId, productId, qty }) => {
-  if (!buyerId || !productId || qty === undefined) {
-    throwError("Please provide buyerId, productId, and qty!", 400);
+const updateCartItemQuantity = async ({
+  buyerId,
+  cartItemId,
+  productId,
+  variantId,
+  qty,
+}) => {
+  if (!buyerId || qty === undefined) {
+    throwError("Please provide buyerId and qty!", 400);
   }
 
   const targetQty = parseInt(qty, 10);
@@ -218,13 +254,26 @@ const updateCartItemQuantity = async ({ buyerId, productId, qty }) => {
 
   const userCart = await getOrCreateCart(buyerId);
 
+  let itemWhere = { cartId: userCart.id };
+  if (cartItemId) {
+    itemWhere.id = cartItemId;
+  } else if (productId) {
+    itemWhere.productId = productId;
+    itemWhere.variantId = variantId ? parseInt(variantId, 10) : null;
+  } else {
+    throwError("Please provide cartItemId or productId!", 400);
+  }
+
   const item = await cartItems.findOne({
-    where: { cartId: userCart.id, productId },
-    include: [{ model: products, as: "product" }],
+    where: itemWhere,
+    include: [
+      { model: products, as: "product" },
+      { model: product_variants, as: "variant" },
+    ],
   });
 
   if (!item) {
-    throwError("Product not found in your cart!", 404);
+    throwError("Item not found in your cart!", 404);
   }
 
   // If quantity reduced to 0 or less, delete the item
@@ -237,11 +286,12 @@ const updateCartItemQuantity = async ({ buyerId, productId, qty }) => {
     };
   }
 
-  // Validate stock
-  if (targetQty > item.product.stock) {
+  // Validate stock against variant or product
+  const availableStock = item.variant ? item.variant.stock : item.product.stock;
+  if (targetQty > availableStock) {
     throwError(
-      `Only ${item.product.stock} item(s) in stock!`,
-      400,
+      `Only ${availableStock} item(s) in stock!`,
+      400
     );
   }
 
@@ -258,15 +308,30 @@ const updateCartItemQuantity = async ({ buyerId, productId, qty }) => {
 /**
  * REMOVE A PRODUCT FROM CART
  */
-const removeProductFromCart = async ({ buyerId, productId }) => {
-  if (!buyerId || !productId) {
-    throwError("Please provide buyerId and productId!", 400);
+const removeProductFromCart = async ({
+  buyerId,
+  cartItemId,
+  productId,
+  variantId,
+}) => {
+  if (!buyerId) {
+    throwError("Please provide buyerId!", 400);
   }
 
   const userCart = await getOrCreateCart(buyerId);
 
+  let itemWhere = { cartId: userCart.id };
+  if (cartItemId) {
+    itemWhere.id = cartItemId;
+  } else if (productId) {
+    itemWhere.productId = productId;
+    itemWhere.variantId = variantId ? parseInt(variantId, 10) : null;
+  } else {
+    throwError("Please provide cartItemId or productId!", 400);
+  }
+
   const item = await cartItems.findOne({
-    where: { cartId: userCart.id, productId },
+    where: itemWhere,
   });
 
   if (!item) {

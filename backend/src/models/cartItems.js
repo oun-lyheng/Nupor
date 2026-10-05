@@ -17,6 +17,13 @@ module.exports = (sequelize, DataTypes) => {
         as: 'product',
         onDelete: 'CASCADE'
       });
+
+      // Belongs to Variant (optional)
+      this.belongsTo(models.product_variants, {
+        foreignKey: 'variantId',
+        as: 'variant',
+        onDelete: 'CASCADE'
+      });
     }
   }
 
@@ -28,6 +35,10 @@ module.exports = (sequelize, DataTypes) => {
     productId: {
       type: DataTypes.INTEGER,
       allowNull: false
+    },
+    variantId: {
+      type: DataTypes.INTEGER,
+      allowNull: true
     },
     qty: {
       type: DataTypes.INTEGER,
@@ -44,7 +55,7 @@ module.exports = (sequelize, DataTypes) => {
     indexes: [
       {
         unique: true,
-        fields: ['cartId', 'productId']
+        fields: ['cartId', 'productId', 'variantId']
       }
     ]
   });
